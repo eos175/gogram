@@ -503,65 +503,11 @@ switchFileType:
 		return ""
 	}
 
-	buf := make([]byte, 4+4+8+8)
-	binary.LittleEndian.PutUint32(buf[0:], uint32(fileType))
-	binary.LittleEndian.PutUint32(buf[4:], uint32(dcID))
-	binary.LittleEndian.PutUint64(buf[8:], uint64(fID))
-	binary.LittleEndian.PutUint64(buf[16:], uint64(accessHash))
-	return base64.RawURLEncoding.EncodeToString(RLCEncode(applyXORInt32(buf, 0x00000001)))
-}
-
-// XOR operation with a 32-bit pattern, (obfuscation)
-func applyXORInt32(data []byte, pattern uint32) []byte {
-	xored := make([]byte, len(data))
-	for i := 0; i < len(data); i += 4 {
-		value := binary.LittleEndian.Uint32(data[i:])
-		xoredValue := value ^ pattern
-		binary.LittleEndian.PutUint32(xored[i:], xoredValue)
-	}
-	return xored
-}
-
-// Run-Length Encoding (RLE) algorithm, used to compress data
-func RLCEncode(data []byte) []byte {
-	var encoded []byte
-	count := 0
-
-	for i := 0; i < len(data); i++ {
-		if data[i] == 0 {
-			count++
-		} else {
-			if count > 0 {
-				encoded = append(encoded, 0, byte(count))
-				count = 0
-			}
-			encoded = append(encoded, data[i])
-		}
-	}
-
-	if count > 0 {
-		encoded = append(encoded, 0, byte(count))
-	}
-
-	return encoded
-}
-
-// Inverse operation of RLCEncode
-func RLCDecode(data []byte) []byte {
-	var decoded []byte
-	for i := 0; i < len(data); i++ {
-		if data[i] == 0 {
-			count := int(data[i+1])
-			for j := 0; j < count; j++ {
-				decoded = append(decoded, 0)
-			}
-			i++
-		} else {
-			decoded = append(decoded, data[i])
-		}
-	}
-
-	return decoded
+	buf := make([]byte, 4+8+8)
+	binary.LittleEndian.PutUint32(buf[0:], uint32(fileType)|uint32(dcID)<<24)
+	binary.LittleEndian.PutUint64(buf[4:], uint64(fID))
+	binary.LittleEndian.PutUint64(buf[4+8:], uint64(accessHash))
+	return base64.RawURLEncoding.EncodeToString(buf)
 }
 
 func UnpackBotFileID(fileID string) (int64, int64, int32, int32) {
@@ -570,13 +516,12 @@ func UnpackBotFileID(fileID string) (int64, int64, int32, int32) {
 		return 0, 0, 0, 0
 	}
 
-	data = applyXORInt32(RLCDecode(data), 0x00000001)
-
-	if len(data) == 24 {
-		fileType := int32(binary.LittleEndian.Uint32(data[0:]))
-		dcID := int32(binary.LittleEndian.Uint32(data[4:]))
-		fID := int64(binary.LittleEndian.Uint64(data[8:]))
-		accessHash := int64(binary.LittleEndian.Uint64(data[16:]))
+	if len(data) == 20 {
+		tmp := binary.LittleEndian.Uint32(data[0:])
+		fileType := int32(tmp & 0x00FFFFFF)
+		dcID := int32((tmp >> 24) & 0xFF)
+		fID := int64(binary.LittleEndian.Uint64(data[4:]))
+		accessHash := int64(binary.LittleEndian.Uint64(data[4+8:]))
 		return fID, accessHash, fileType, dcID
 	}
 
